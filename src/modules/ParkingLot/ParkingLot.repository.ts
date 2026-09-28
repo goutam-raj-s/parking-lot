@@ -8,41 +8,35 @@ import {
   type ParkingTicket,
   type Payment,
 } from "../../models/index.js";
-import { defaultParkingLotConfig } from "../../helpers/parking-lot-config.js";
-
-const clone = <T>(value: T): T => structuredClone(value);
+import { clone, inMemoryStore } from "../../helpers/in-memory-store.js";
 
 export class ParkingLotRepository {
-  private readonly config: ParkingLotConfig = clone(defaultParkingLotConfig);
-  private readonly tickets = new Map<string, ParkingTicket>();
-  private readonly payments = new Map<string, Payment>();
-
   getConfig() {
-    return clone(this.config);
+    return clone(inMemoryStore.config);
   }
 
   getSpots() {
-    return clone(this.config.spots);
+    return clone(inMemoryStore.config.spots);
   }
 
   getFloors() {
-    return clone(this.config.floors);
+    return clone(inMemoryStore.config.floors);
   }
 
   getEntrances() {
-    return clone(this.config.entrances);
+    return clone(inMemoryStore.config.entrances);
   }
 
   getExits() {
-    return clone(this.config.exits);
+    return clone(inMemoryStore.config.exits);
   }
 
   getRates() {
-    return clone(this.config.rates);
+    return clone(inMemoryStore.config.rates);
   }
 
   findSpotById(spotId: string) {
-    return this.config.spots.find((spot) => spot.id === spotId);
+    return inMemoryStore.config.spots.find((spot) => spot.id === spotId);
   }
 
   updateSpotStatus(spotId: string, status: ParkingSpotStatus) {
@@ -82,23 +76,23 @@ export class ParkingLotRepository {
   }
 
   createTicket(ticket: ParkingTicket) {
-    this.tickets.set(ticket.id, clone(ticket));
+    inMemoryStore.tickets.set(ticket.id, clone(ticket));
     return clone(ticket);
   }
 
   updateTicket(ticket: ParkingTicket) {
-    this.tickets.set(ticket.id, clone(ticket));
+    inMemoryStore.tickets.set(ticket.id, clone(ticket));
     return clone(ticket);
   }
 
   findTicketById(ticketId: string) {
-    const ticket = this.tickets.get(ticketId);
+    const ticket = inMemoryStore.tickets.get(ticketId);
     return ticket ? clone(ticket) : undefined;
   }
 
   findActiveTicketByPlate(plateNumber: string) {
     const normalizedPlate = plateNumber.trim().toUpperCase();
-    return Array.from(this.tickets.values()).find(
+    return Array.from(inMemoryStore.tickets.values()).find(
       (ticket) =>
         ticket.vehicle.plateNumber === normalizedPlate &&
         (ticket.status === TicketStatus.Active || ticket.status === TicketStatus.CheckedOut),
@@ -106,23 +100,23 @@ export class ParkingLotRepository {
   }
 
   listTickets() {
-    return Array.from(this.tickets.values()).map((ticket) => clone(ticket));
+    return Array.from(inMemoryStore.tickets.values()).map((ticket) => clone(ticket));
   }
 
   createPayment(payment: Payment) {
-    this.payments.set(payment.id, clone(payment));
+    inMemoryStore.payments.set(payment.id, clone(payment));
     return clone(payment);
   }
 
   findPaymentByTicketId(ticketId: string) {
-    const payment = Array.from(this.payments.values()).find(
+    const payment = Array.from(inMemoryStore.payments.values()).find(
       (currentPayment) => currentPayment.ticketId === ticketId && currentPayment.status === PaymentStatus.Completed,
     );
     return payment ? clone(payment) : undefined;
   }
 
   getAvailability(): AvailabilitySummary {
-    const byType = Object.values(this.config.spots).reduce<AvailabilitySummary["byType"]>((summary, spot) => {
+    const byType = Object.values(inMemoryStore.config.spots).reduce<AvailabilitySummary["byType"]>((summary, spot) => {
       summary[spot.type] ??= { total: 0, available: 0, occupied: 0 };
       summary[spot.type].total += 1;
       if (spot.status === ParkingSpotStatus.Available) {
@@ -134,7 +128,7 @@ export class ParkingLotRepository {
       return summary;
     }, {} as AvailabilitySummary["byType"]);
 
-    const byFloor = this.config.spots.reduce<AvailabilitySummary["byFloor"]>((summary, spot) => {
+    const byFloor = inMemoryStore.config.spots.reduce<AvailabilitySummary["byFloor"]>((summary, spot) => {
       const floorSummary = summary[spot.floorId] ?? { total: 0, available: 0, occupied: 0 };
       floorSummary.total += 1;
       if (spot.status === ParkingSpotStatus.Available) {
@@ -147,10 +141,10 @@ export class ParkingLotRepository {
       return summary;
     }, {});
 
-    const total = this.config.spots.length;
-    const available = this.config.spots.filter((spot) => spot.status === ParkingSpotStatus.Available).length;
-    const occupied = this.config.spots.filter((spot) => spot.status === ParkingSpotStatus.Occupied).length;
-    const outOfService = this.config.spots.filter((spot) => spot.status === ParkingSpotStatus.OutOfService).length;
+    const total = inMemoryStore.config.spots.length;
+    const available = inMemoryStore.config.spots.filter((spot) => spot.status === ParkingSpotStatus.Available).length;
+    const occupied = inMemoryStore.config.spots.filter((spot) => spot.status === ParkingSpotStatus.Occupied).length;
+    const outOfService = inMemoryStore.config.spots.filter((spot) => spot.status === ParkingSpotStatus.OutOfService).length;
 
     return { total, available, occupied, outOfService, byType, byFloor };
   }

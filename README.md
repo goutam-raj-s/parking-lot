@@ -54,6 +54,23 @@ PATCH /api/parking-spots/:spotId/status
 GET /api/parking-floors
 ```
 
+Domain modules:
+
+```http
+GET /api/tickets
+GET /api/tickets/:ticketId
+GET /api/payments
+GET /api/payments/:paymentId
+GET /api/vehicles
+GET /api/vehicles/:plateNumber
+GET /api/terminals/entrances
+GET /api/terminals/exits
+GET /api/rates
+GET /api/rates/:vehicleType
+GET /api/monitoring/availability
+GET /api/monitoring/snapshot
+```
+
 ## Example Flow
 
 Check in:
@@ -98,5 +115,6 @@ curl -X POST http://127.0.0.1:3000/api/parking-lot/payments \
 - Spot allocation uses a strategy class that chooses the nearest compatible available spot for the entry terminal.
 - State-changing workflows are guarded by a mutex so concurrent check-ins cannot take the same spot.
 - Fee calculation is isolated behind an hourly strategy.
-- Controllers validate requests with Zod, services hold business rules, and repositories own data access.
+- Each module follows `api.ts -> module.index.ts -> module.controller.ts -> module.helper.ts -> module.service.ts -> module.repository.ts`.
+- Controllers validate requests with Zod, helpers hold business rules, services provide a data-access boundary, and repositories own store access.
 - The seed configuration can be changed in `src/helpers/parking-lot-config.ts` for another installation.

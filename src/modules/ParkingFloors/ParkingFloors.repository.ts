@@ -1,8 +1,8 @@
-import { parkingLotRepository } from "../ParkingLot/ParkingLot.repository.js";
+import { clone, inMemoryStore } from "../../helpers/in-memory-store.js";
 
 export class ParkingFloorsRepository {
   getFloors() {
-    return parkingLotRepository.getFloors();
+    return clone(inMemoryStore.config.floors);
   }
 }
 

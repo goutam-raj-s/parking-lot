@@ -1,5 +1,5 @@
 import { ParkingSpotStatus } from "../../models/index.js";
-import { parkingLotHelper } from "../ParkingLot/ParkingLot.helper.js";
+import { badRequest, conflict, notFound } from "../../utils/app-error.js";
 import { parkingSpotsService, type ParkingSpotsService } from "./ParkingSpots.service.js";
 
 export class ParkingSpotsHelper {
@@ -10,7 +10,25 @@ export class ParkingSpotsHelper {
   }
 
   setSpotStatus(spotId: string, status: ParkingSpotStatus) {
-    return parkingLotHelper.setSpotStatus(spotId, status);
+    if (status === ParkingSpotStatus.Occupied) {
+      throw badRequest("Use check-in to occupy a parking spot");
+    }
+
+    const spot = this.service.findSpotById(spotId);
+    if (!spot) {
+      throw notFound("Parking spot not found");
+    }
+
+    if (spot.status === ParkingSpotStatus.Occupied) {
+      throw conflict("Cannot update status for an occupied parking spot");
+    }
+
+    const updatedSpot = this.service.updateSpotStatus(spotId, status);
+    if (!updatedSpot) {
+      throw notFound("Parking spot not found");
+    }
+
+    return updatedSpot;
   }
 }
 

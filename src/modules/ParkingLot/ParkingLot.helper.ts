@@ -12,6 +12,15 @@ import { badRequest, conflict, notFound } from "../../utils/app-error.js";
 import { parkingLotService, type ParkingLotService } from "./ParkingLot.service.js";
 import { HourlyFeeCalculator } from "./utils/fee-calculator.js";
 import { NearestSpotAllocationStrategy } from "./utils/spot-allocation.js";
+import { monitoringHelper } from "../Monitoring/Monitoring.helper.js";
+import { paymentsService } from "../Payments/Payments.service.js";
+import { parkingFloorsService } from "../ParkingFloors/ParkingFloors.service.js";
+import { parkingSpotsHelper } from "../ParkingSpots/ParkingSpots.helper.js";
+import { parkingSpotsService } from "../ParkingSpots/ParkingSpots.service.js";
+import { ratesService } from "../Rates/Rates.service.js";
+import { terminalsService } from "../Terminals/Terminals.service.js";
+import { ticketsService } from "../Tickets/Tickets.service.js";
+import { vehiclesService } from "../Vehicles/Vehicles.service.js";
 
 export interface CheckInInput {
   entranceId: string;
@@ -42,27 +51,15 @@ export class ParkingLotHelper {
   }
 
   getAvailability() {
-    return this.service.getAvailability();
+    return monitoringHelper.getAvailability();
   }
 
   getMonitoring() {
-    const tickets = this.service.listTickets();
-    const availability = this.service.getAvailability();
-    const activeTickets = tickets.filter((ticket) => ticket.status === TicketStatus.Active).length;
-    const checkedOutAwaitingPayment = tickets.filter((ticket) => ticket.status === TicketStatus.CheckedOut).length;
-    const paidTickets = tickets.filter((ticket) => ticket.status === TicketStatus.Paid).length;
-
-    return {
-      availability,
-      activeTickets,
-      checkedOutAwaitingPayment,
-      paidTickets,
-      capacityUsagePercent: availability.total === 0 ? 0 : Math.round((availability.occupied / availability.total) * 100),
-    };
+    return monitoringHelper.getSnapshot();
   }
 
   getTicket(ticketId: string) {
-    const ticket = this.service.findTicketById(ticketId);
+    const ticket = ticketsService.findById(ticketId);
     if (!ticket) {
       throw notFound("Ticket not found");
     }
@@ -72,18 +69,18 @@ export class ParkingLotHelper {
 
   async checkIn(input: CheckInInput) {
     return this.allocationMutex.runExclusive(() => {
-      const entrance = this.service.getEntrances().find((currentEntrance) => currentEntrance.id === input.entranceId);
+      const entrance = terminalsService.findEntranceById(input.entranceId);
       if (!entrance) {
         throw badRequest("Entrance terminal not found");
       }
 
-      const plateNumber = input.vehicle.plateNumber.trim().toUpperCase();
-      const existingTicket = this.service.findActiveTicketByPlate(plateNumber);
+      const plateNumber = vehiclesService.normalizePlateNumber(input.vehicle.plateNumber);
+      const existingTicket = ticketsService.findActiveByPlate(plateNumber);
       if (existingTicket) {
         throw conflict("Vehicle already has an active parking ticket");
       }
 
-      const spot = this.allocationStrategy.findSpot(this.service.getSpots(), {
+      const spot = this.allocationStrategy.findSpot(parkingSpotsService.getSpots(), {
         vehicleType: input.vehicle.type,
         entranceId: input.entranceId,
         preferredSpotType: input.preferredSpotType,
@@ -94,7 +91,7 @@ export class ParkingLotHelper {
       }
 
       const ticketId = createId("ticket");
-      const ticket = this.service.createTicket({
+      const ticket = ticketsService.create({
         id: ticketId,
         ticketNumber: createTicketNumber(),
         vehicle: {
@@ -107,7 +104,7 @@ export class ParkingLotHelper {
         status: TicketStatus.Active,
       });
 
-      const occupiedSpot = this.service.occupySpot(spot.id, ticket.id);
+      const occupiedSpot = parkingSpotsService.occupySpot(spot.id, ticket.id);
       if (!occupiedSpot) {
         throw conflict("Unable to occupy selected parking spot");
       }
@@ -118,7 +115,7 @@ export class ParkingLotHelper {
 
   async checkOut(input: CheckOutInput) {
     return this.allocationMutex.runExclusive(() => {
-      const exit = this.service.getExits().find((currentExit) => currentExit.id === input.exitId);
+      const exit = terminalsService.findExitById(input.exitId);
       if (!exit) {
         throw badRequest("Exit terminal not found");
       }
@@ -138,20 +135,20 @@ export class ParkingLotHelper {
       }
 
       const exitTime = input.exitTime ?? new Date();
-      const fee = new HourlyFeeCalculator(this.service.getRates()).calculate(
+      const fee = new HourlyFeeCalculator(ratesService.list()).calculate(
         ticket.vehicle.type,
         new Date(ticket.entryTime),
         exitTime,
       );
 
-      const updatedTicket = this.service.updateTicket({
+      const updatedTicket = ticketsService.update({
         ...ticket,
         exitTime: exitTime.toISOString(),
         feeAmount: fee.amount,
         status: TicketStatus.CheckedOut,
       });
 
-      this.service.releaseSpot(ticket.spotId);
+      parkingSpotsService.releaseSpot(ticket.spotId);
 
       return { ticket: updatedTicket, fee };
     });
@@ -173,7 +170,7 @@ export class ParkingLotHelper {
         throw badRequest(`Payment amount must be at least ${requiredAmount}`);
       }
 
-      const payment = this.service.createPayment({
+      const payment = paymentsService.create({
         id: createId("payment"),
         ticketId: ticket.id,
         method: input.method,
@@ -182,7 +179,7 @@ export class ParkingLotHelper {
         paidAt: new Date().toISOString(),
       });
 
-      const paidTicket = this.service.updateTicket({
+      const paidTicket = ticketsService.update({
         ...ticket,
         paymentId: payment.id,
         status: TicketStatus.Paid,
@@ -193,33 +190,15 @@ export class ParkingLotHelper {
   }
 
   setSpotStatus(spotId: string, status: ParkingSpotStatus) {
-    if (status === ParkingSpotStatus.Occupied) {
-      throw badRequest("Use check-in to occupy a parking spot");
-    }
-
-    const spot = this.service.findSpotById(spotId);
-    if (!spot) {
-      throw notFound("Parking spot not found");
-    }
-
-    if (spot.status === ParkingSpotStatus.Occupied) {
-      throw conflict("Cannot update status for an occupied parking spot");
-    }
-
-    const updatedSpot = this.service.updateSpotStatus(spotId, status);
-    if (!updatedSpot) {
-      throw notFound("Parking spot not found");
-    }
-
-    return updatedSpot;
+    return parkingSpotsHelper.setSpotStatus(spotId, status);
   }
 
   getSpots() {
-    return this.service.getSpots();
+    return parkingSpotsService.getSpots();
   }
 
   getFloors() {
-    return this.service.getFloors();
+    return parkingFloorsService.getFloors();
   }
 }
 

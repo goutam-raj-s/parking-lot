@@ -1,10 +1,10 @@
 import type { Request, Response } from "express";
 import { ok } from "../../utils/http-response.js";
-import { parkingFloorsService } from "./ParkingFloors.service.js";
+import { parkingFloorsHelper } from "./ParkingFloors.helper.js";
 
 export class ParkingFloorsController {
   getFloors(_request: Request, response: Response) {
-    ok(response, parkingFloorsService.getFloors());
+    ok(response, parkingFloorsHelper.getFloors());
   }
 }
 
